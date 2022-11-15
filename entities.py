@@ -13,20 +13,16 @@ class Entity:
         self.collidable = True
         if movable:
             self.friction = friction
-            self.velocity = Point(0,0) # this is xp, yp
+            self.velocity = 0
             self.acceleration = 0 # this is vp (or speedp)
             self.angular_velocity = 0 # this is headingp
-            self.inputSteering = 0
+            self.tanInputSteering = 0
             self.inputAcceleration = 0
             self.max_speed = np.inf
             self.min_speed = 0
-    
-    @property
-    def speed(self) -> float:
-        return self.velocity.norm(p = 2) if self.movable else 0
-    
-    def set_control(self, inputSteering: float, inputAcceleration: float):
-        self.inputSteering = inputSteering
+        
+    def set_control(self, tanInputSteering: float, inputAcceleration: float):
+        self.tanInputSteering = tanInputSteering
         self.inputAcceleration = inputAcceleration
     
     @property
@@ -41,18 +37,39 @@ class Entity:
         elif isinstance(self, RingEntity):
             return (self.inner_radius + self.outer_radius) / 2.
         raise NotImplementedError
-    
+
+    def dynamics(self, state, control):
+        return np.array([state[3] * np.cos(state[2]), state[3] * np.sin(state[2]), state[3] * control[0] / self.rear_dist, control[1]])
+
     def tick(self, dt: float):
         if self.movable:
-            dx = self.speed * np.cos(self.heading)
-            dy = self.speed * np.sin(self.heading)
-            dtheta = self.inputSteering * self.speed / self.rear_dist
-            dv = self.inputAcceleration
+            # rk4 step forward
+            state = np.array([self.center.x, self.center.y, self.heading, self.velocity])
 
-            self.center = self.center + Point(dx, dy) * dt
-            self.heading = np.mod(self.heading + dtheta * dt, 2 * np.pi)
-            new_speed = self.speed + dv * dt
-            self.velocity = Point(new_speed * np.cos(self.heading), new_speed * np.sin(self.heading))
+            control = np.array([self.tanInputSteering, self.inputAcceleration])
+            f1 = self.dynamics(state, control)
+            f2 = self.dynamics(state + dt / 2 * f1, control)
+            f3 = self.dynamics(state + dt / 2 * f2, control)
+            f4 = self.dynamics(state + dt * f3, control)
+
+            result = state + (dt / 6) * (f1 + 2 * f2 + 2 * f3 + f4)
+            
+            self.center = Point(result[0], result[1])
+            self.heading = np.mod(result[2], 2 * np.pi)
+            self.velocity = result[3]
+
+            # dx = self.speed * np.cos(self.heading)
+            # dy = self.speed * np.sin(self.heading)
+            # dtheta = self.tanInputSteering * self.speed / self.rear_dist
+            # dv = self.inputAcceleration
+
+            
+
+
+            # self.center = self.center + Point(dx, dy) * dt
+            # self.heading = np.mod(self.heading + dtheta * dt, 2 * np.pi)
+            # new_speed = self.speed + dv * dt
+            # self.velocity = Point(new_speed * np.cos(self.heading), new_speed * np.sin(self.heading))
 
             
             # # Kinematic bicycle model dynamics based on
